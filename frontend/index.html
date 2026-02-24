@@ -135,7 +135,7 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
     <div class="auth-box">
       <div class="auth-hero">
         <h1>Attendance That<br>Can't Be <em>Cheated</em></h1>
-        <p>Cryptographic QR tokens that expire in 7 seconds.<br>Teacher dashboard. No student accounts needed.</p>
+        <p>Cryptographic QR tokens that expire in 15 seconds.<br>Teacher dashboard. No student accounts needed.</p>
       </div>
       <div class="auth-card">
         <div id="login-alert"></div>
@@ -188,7 +188,7 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
               <div style="font-size:0.8rem;line-height:2;color:var(--muted);">
                 ✅ HMAC-SHA256 signed on server<br>
                 ✅ Secret key never sent to client<br>
-                ✅ 7-second hard expiry<br>
+                ✅ 15-second hard expiry<br>
                 ✅ Random nonce per token<br>
                 ✅ One-time use enforced<br>
                 ✅ Rate limiting active<br>
@@ -284,7 +284,7 @@ let currentTeacher = JSON.parse(localStorage.getItem('qrs_teacher') || 'null');
 let activeSessionId = null;
 let qrInterval = null;
 let countdown = null;
-let countSec = 7;
+let countSec = 15;
 
 // ── ROUTING ────────────────────────────────────────────────────
 function showView(id) {
@@ -409,19 +409,19 @@ async function stopSession() {
 // ── QR CYCLE ───────────────────────────────────────────────────
 function startQRCycle() {
   fetchQR();
-  countSec = 7;
-  qrInterval = setInterval(fetchQR, 7000);
+  countSec = 15;
+  qrInterval = setInterval(fetchQR, 15000);
   countdown = setInterval(() => {
     countSec--;
     const el = document.getElementById('qr-timer');
     if (el) {
       el.textContent = countSec;
-      el.className = 'qr-timer' + (countSec <= 2 ? ' danger' : countSec <= 4 ? ' warn' : '');
+      el.className = 'qr-timer' + (countSec <= 3 ? ' danger' : countSec <= 7 ? ' warn' : '');
     }
     const prog = document.getElementById('qr-prog');
     if (prog) {
-      prog.style.width = ((countSec / 7) * 100) + '%';
-      prog.style.background = countSec <= 2 ? 'var(--accent2)' : countSec <= 4 ? 'var(--warning)' : 'var(--accent)';
+      prog.style.width = ((countSec / 15) * 100) + '%';
+      prog.style.background = countSec <= 3 ? 'var(--accent2)' : countSec <= 7 ? 'var(--warning)' : 'var(--accent)';
     }
   }, 1000);
 }
@@ -431,7 +431,7 @@ function stopQRCycle() {
   clearInterval(countdown);
   qrInterval = null;
   countdown = null;
-  countSec = 7;
+  countSec = 15;
 }
 
 async function fetchQR() {
@@ -442,7 +442,7 @@ async function fetchQR() {
     if (img) img.src = data.qrDataUrl;
     const snip = document.getElementById('qr-token-snip');
     if (snip) snip.textContent = data.token.substring(0, 64) + '…';
-    countSec = 7;
+    countSec = 15;
     fetchAttendees();
   } catch(e) {
     console.error('QR fetch failed:', e.message);

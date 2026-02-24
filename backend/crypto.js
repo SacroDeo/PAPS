@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
 const HMAC_SECRET = process.env.HMAC_SECRET || 'dev-secret-change-in-production-please';
-const TOKEN_EXPIRY_MS = parseInt(process.env.TOKEN_EXPIRY_MS || '7000');
+const TOKEN_EXPIRY_MS = parseInt(process.env.TOKEN_EXPIRY_MS || '15000');
 
 /**
  * Generate a signed, time-bound, single-use token
