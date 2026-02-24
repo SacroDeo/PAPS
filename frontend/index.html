@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QRShield — Secure Attendance</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
+:root {
+  --bg:#0a0a0f; --surface:#111118; --surface2:#1a1a24; --border:#2a2a3a;
+  --accent:#00ff88; --accent2:#ff3366; --accent3:#3388ff;
+  --text:#e8e8f0; --muted:#666680; --warning:#ffaa00;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 10% 20%,rgba(0,255,136,0.04) 0%,transparent 60%),radial-gradient(ellipse 50% 50% at 90% 80%,rgba(51,136,255,0.04) 0%,transparent 60%);pointer-events:none;z-index:0;}
+.grid-bg{position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+.app{position:relative;z-index:1;}
+header{padding:18px 40px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(10,10,15,0.85);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;}
+.logo{font-size:1.3rem;font-weight:800;display:flex;align-items:center;gap:10px;}
+.logo-icon{width:30px;height:30px;background:var(--accent);border-radius:7px;display:grid;place-items:center;font-size:14px;}
+.logo span{color:var(--accent);}
+.hdr-right{display:flex;align-items:center;gap:16px;font-family:'Space Mono',monospace;font-size:0.75rem;color:var(--muted);}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,255,136,0.4);}50%{box-shadow:0 0 0 6px rgba(0,255,136,0);}}
+.view{display:none;} .view.active{display:block;}
+/* AUTH */
+.auth-wrap{min-height:calc(100vh - 61px);display:flex;align-items:center;justify-content:center;padding:40px 20px;}
+.auth-box{width:100%;max-width:420px;}
+.auth-hero{text-align:center;margin-bottom:40px;}
+.auth-hero h1{font-size:2.6rem;font-weight:800;line-height:1.1;margin-bottom:12px;}
+.auth-hero h1 em{font-style:normal;color:var(--accent);}
+.auth-hero p{color:var(--muted);font-size:0.9rem;line-height:1.6;}
+.auth-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;}
+.fg{margin-bottom:18px;}
+.fg label{display:block;font-size:0.75rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;}
+.fg input{width:100%;padding:13px 15px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:'Syne',sans-serif;font-size:0.93rem;outline:none;transition:border-color 0.2s;}
+.fg input:focus{border-color:var(--accent);}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:13px 24px;border:none;border-radius:9px;font-family:'Syne',sans-serif;font-weight:700;font-size:0.93rem;cursor:pointer;transition:all 0.2s;text-decoration:none;}
+.btn-primary{background:var(--accent);color:#000;width:100%;}
+.btn-primary:hover{background:#00cc6e;transform:translateY(-1px);}
+.btn-primary:disabled{background:#334;color:#666;cursor:not-allowed;transform:none;}
+.btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent);}
+.btn-danger{background:rgba(255,51,102,0.15);color:var(--accent2);border:1px solid rgba(255,51,102,0.3);}
+.btn-danger:hover{background:rgba(255,51,102,0.25);}
+.btn-sm{padding:8px 15px;font-size:0.8rem;}
+.alert{padding:12px 16px;border-radius:9px;margin-bottom:14px;font-size:0.85rem;display:flex;align-items:center;gap:8px;line-height:1.4;}
+.alert-error{background:rgba(255,51,102,0.1);border:1px solid rgba(255,51,102,0.25);color:var(--accent2);}
+.alert-success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:var(--accent);}
+.alert-info{background:rgba(51,136,255,0.1);border:1px solid rgba(51,136,255,0.25);color:var(--accent3);}
+.alert-warning{background:rgba(255,170,0,0.1);border:1px solid rgba(255,170,0,0.25);color:var(--warning);}
+/* DASHBOARD */
+.dash{max-width:1200px;margin:0 auto;padding:36px 24px;}
+.dash-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:36px;flex-wrap:wrap;gap:16px;}
+.dash-top h2{font-size:1.7rem;font-weight:800;}
+.dash-top h2 small{font-size:0.8rem;color:var(--muted);font-weight:400;display:block;margin-top:4px;font-family:'Space Mono',monospace;}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:28px;}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:22px;position:relative;overflow:hidden;}
+.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.stat.g::after{background:var(--accent);} .stat.b::after{background:var(--accent3);} .stat.y::after{background:var(--warning);} .stat.r::after{background:var(--accent2);}
+.stat-v{font-size:2rem;font-weight:800;font-family:'Space Mono',monospace;line-height:1;margin-bottom:5px;}
+.stat-l{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:700;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:26px;margin-bottom:22px;}
+.card-title{font-size:0.85rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:18px;display:flex;align-items:center;gap:10px;}
+.badge-live{background:rgba(0,255,136,0.15);color:var(--accent);padding:2px 9px;border-radius:20px;font-size:0.68rem;animation:pulse 2s infinite;}
+/* QR section */
+.qr-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start;}
+@media(max-width:720px){.qr-grid{grid-template-columns:1fr;}}
+.qr-box{background:var(--surface2);border:1px solid var(--accent);border-radius:15px;padding:28px;text-align:center;position:relative;}
+.qr-img-wrap{display:inline-block;padding:14px;background:#fff;border-radius:10px;margin-bottom:14px;}
+.qr-img-wrap img{width:220px;height:220px;display:block;}
+.qr-timer{font-family:'Space Mono',monospace;font-size:2.2rem;font-weight:700;color:var(--accent);margin-bottom:6px;transition:color 0.3s;}
+.qr-timer.warn{color:var(--warning);} .qr-timer.danger{color:var(--accent2);}
+.qr-sub{font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;}
+.prog-bar{height:3px;background:var(--surface);border-radius:2px;overflow:hidden;margin-top:10px;}
+.prog-fill{height:100%;background:var(--accent);transition:width 1s linear,background 0.3s;}
+.token-pill{font-family:'Space Mono',monospace;font-size:0.58rem;color:var(--muted);word-break:break-all;margin-top:10px;padding:7px;background:var(--surface);border-radius:7px;text-align:left;}
+/* Tables */
+.tbl-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:0.85rem;}
+th{text-align:left;padding:9px 14px;font-size:0.68rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted);border-bottom:1px solid var(--border);}
+td{padding:13px 14px;border-bottom:1px solid rgba(255,255,255,0.04);}
+tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.02);}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:0.68rem;font-weight:700;font-family:'Space Mono',monospace;}
+.pill-g{background:rgba(0,255,136,0.13);color:var(--accent);}
+.pill-r{background:rgba(255,51,102,0.13);color:var(--accent2);}
+.pill-y{background:rgba(255,170,0,0.13);color:var(--warning);}
+.pill-b{background:rgba(51,136,255,0.13);color:var(--accent3);}
+/* Classes list */
+.cls-card{background:var(--surface2);border:1px solid var(--border);border-radius:11px;padding:18px 20px;display:flex;align-items:center;gap:14px;margin-bottom:10px;transition:border-color 0.2s;}
+.cls-card:hover{border-color:var(--accent);}
+.cls-icon{width:44px;height:44px;border-radius:10px;background:rgba(0,255,136,0.08);display:grid;place-items:center;font-size:18px;flex-shrink:0;}
+.cls-info{flex:1;} .cls-info h3{font-size:0.95rem;font-weight:700;margin-bottom:3px;} .cls-info p{font-size:0.73rem;color:var(--muted);}
+.tabs-row{display:flex;gap:4px;margin-bottom:22px;background:var(--surface2);padding:4px;border-radius:10px;width:fit-content;}
+.tab-btn{padding:9px 18px;border:none;border-radius:7px;background:transparent;color:var(--muted);font-family:'Syne',sans-serif;font-weight:600;font-size:0.85rem;cursor:pointer;transition:all 0.2s;}
+.tab-btn.active{background:var(--surface);color:var(--text);}
+.tab-panel{display:none;} .tab-panel.active{display:block;}
+.empty{text-align:center;padding:40px 20px;color:var(--muted);}
+.empty .ei{font-size:2.4rem;margin-bottom:12px;}
+.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.ml-auto{margin-left:auto;}
+.mt{margin-top:14px;}
+.logout-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:7px 14px;border-radius:7px;cursor:pointer;font-family:'Syne',sans-serif;font-size:0.8rem;font-weight:600;transition:all 0.2s;}
+.logout-btn:hover{border-color:var(--accent2);color:var(--accent2);}
+/* STUDENT SCAN PAGE */
+.scan-wrap{min-height:calc(100vh - 61px);display:flex;align-items:center;justify-content:center;padding:40px 20px;}
+.scan-box{width:100%;max-width:460px;text-align:center;}
+.scan-box h2{font-size:1.8rem;font-weight:800;margin-bottom:8px;}
+.scan-box p{color:var(--muted);margin-bottom:28px;font-size:0.9rem;line-height:1.5;}
+.scan-result{padding:20px;border-radius:11px;margin-top:18px;font-weight:700;font-size:1rem;display:none;}
+.scan-result.ok{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);color:var(--accent);}
+.scan-result.fail{background:rgba(255,51,102,0.1);border:1px solid rgba(255,51,102,0.3);color:var(--accent2);}
+.spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(0,0,0,0.3);border-top-color:#000;border-radius:50%;animation:spin 0.7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+@media(max-width:600px){header{padding:14px 18px;}.dash{padding:20px 14px;}}
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="app">
+
+<header>
+  <div class="logo"><div class="logo-icon">🛡</div>QR<span>Shield</span></div>
+  <div class="hdr-right">
+    <div style="display:flex;align-items:center;gap:6px;"><div class="dot"></div><span>SECURE</span></div>
+    <span id="hdr-user" style="display:none;"></span>
+    <button class="logout-btn" id="hdr-logout" style="display:none;" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<!-- ══ LOGIN VIEW ══ -->
+<div id="view-login" class="view active">
+  <div class="auth-wrap">
+    <div class="auth-box">
+      <div class="auth-hero">
+        <h1>Attendance That<br>Can't Be <em>Cheated</em></h1>
+        <p>Cryptographic QR tokens that expire in 7 seconds.<br>Teacher dashboard. No student accounts needed.</p>
+      </div>
+      <div class="auth-card">
+        <div id="login-alert"></div>
+        <div class="fg"><label>Teacher Email</label><input type="email" id="l-email" placeholder="teacher@demo.com" /></div>
+        <div class="fg"><label>Password</label><input type="password" id="l-pass" placeholder="teacher123" /></div>
+        <div class="alert alert-info" style="margin-bottom:16px;">💡 Demo: <strong>teacher@demo.com / teacher123</strong></div>
+        <button class="btn btn-primary" id="login-btn" onclick="doLogin()">Login →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TEACHER DASHBOARD ══ -->
+<div id="view-dash" class="view">
+  <div class="dash">
+    <div class="dash-top">
+      <h2>Teacher Dashboard <small id="dash-name"></small></h2>
+      <div class="flex">
+        <div class="tabs-row">
+          <button class="tab-btn active" onclick="switchTab('tab-classes')">Classes</button>
+          <button class="tab-btn" onclick="switchTab('tab-reports')">Reports</button>
+          <button class="tab-btn" onclick="switchTab('tab-fraud')">Fraud Log</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat g"><div class="stat-v" id="s-attend">0</div><div class="stat-l">Total Attendances</div></div>
+      <div class="stat b"><div class="stat-v" id="s-sess">0</div><div class="stat-l">Active Sessions</div></div>
+      <div class="stat y"><div class="stat-v" id="s-class">0</div><div class="stat-l">Classes</div></div>
+      <div class="stat r"><div class="stat-v" id="s-fraud">0</div><div class="stat-l">Fraud Attempts</div></div>
+    </div>
+
+    <!-- ── Tab: Classes ── -->
+    <div id="tab-classes" class="tab-panel active">
+      <!-- Active QR session -->
+      <div id="qr-card" class="card" style="display:none;">
+        <div class="card-title">📡 Live Session — <span id="qr-class-name" style="color:var(--accent)"></span> <span class="badge-live">LIVE</span></div>
+        <div class="qr-grid">
+          <div class="qr-box">
+            <div class="qr-img-wrap"><img id="qr-img" src="" alt="QR Code" /></div>
+            <div class="qr-timer" id="qr-timer">7</div>
+            <div class="qr-sub">seconds until next QR</div>
+            <div class="prog-bar"><div class="prog-fill" id="qr-prog" style="width:100%"></div></div>
+            <div class="token-pill" id="qr-token-snip">Generating secure token...</div>
+          </div>
+          <div>
+            <div class="card" style="margin-bottom:14px;">
+              <div class="card-title">🔐 Security Active</div>
+              <div style="font-size:0.8rem;line-height:2;color:var(--muted);">
+                ✅ HMAC-SHA256 signed on server<br>
+                ✅ Secret key never sent to client<br>
+                ✅ 7-second hard expiry<br>
+                ✅ Random nonce per token<br>
+                ✅ One-time use enforced<br>
+                ✅ Rate limiting active<br>
+                ✅ Replay attacks blocked
+              </div>
+            </div>
+            <div class="card" style="margin-bottom:14px;">
+              <div class="card-title">👥 Live Scans <span id="scan-count" style="color:var(--accent);font-family:'Space Mono',monospace;">0</span></div>
+              <div id="live-list"><div class="empty"><div class="ei">📋</div><p>Waiting for students…</p></div></div>
+            </div>
+            <button class="btn btn-danger" style="width:100%;" onclick="stopSession()">⏹ Stop Session</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create class -->
+      <div class="card">
+        <div class="card-title">➕ Create Class</div>
+        <div class="flex">
+          <input type="text" id="cls-name-input" placeholder="e.g. CS101 — Data Structures" style="flex:1;padding:12px 15px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:'Syne',sans-serif;outline:none;">
+          <button class="btn btn-primary" style="width:auto;" onclick="createClass()">Create</button>
+        </div>
+      </div>
+
+      <!-- Classes list -->
+      <div class="card">
+        <div class="card-title">📚 Your Classes</div>
+        <div id="classes-list"><div class="empty"><div class="ei">📭</div><p>No classes yet.</p></div></div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Reports ── -->
+    <div id="tab-reports" class="tab-panel">
+      <div class="card">
+        <div class="card-title">📊 Attendance Report</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Student Name</th><th>Student ID</th><th>Class</th><th>Time Marked</th><th>Status</th></tr></thead>
+            <tbody id="report-tbody"></tbody>
+          </table>
+        </div>
+        <div id="report-empty" class="empty"><div class="ei">📈</div><p>No records yet.</p></div>
+      </div>
+    </div>
+
+    <!-- ── Tab: Fraud ── -->
+    <div id="tab-fraud" class="tab-panel">
+      <div class="card">
+        <div class="card-title">🚨 Fraud & Abuse Log</div>
+        <div class="alert alert-warning" style="margin-bottom:16px;">All rejected token attempts logged here — expired, replayed, tampered, rate-limited.</div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Reason</th><th>Student</th><th>Token (snippet)</th></tr></thead>
+            <tbody id="fraud-tbody"></tbody>
+          </table>
+        </div>
+        <div id="fraud-empty" class="empty"><div class="ei">✅</div><p>No fraud detected.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ STUDENT SCAN VIEW ══ -->
+<div id="view-scan" class="view">
+  <div class="scan-wrap">
+    <div class="scan-box">
+      <div style="font-size:3rem;margin-bottom:16px;">📷</div>
+      <h2>Mark Attendance</h2>
+      <p>Enter your details below.<br>The token from the QR code is in the URL automatically.</p>
+      <div class="auth-card" style="text-align:left;margin-top:24px;">
+        <div id="scan-alert"></div>
+        <div class="fg"><label>Your Full Name</label><input type="text" id="sc-name" placeholder="John Doe" /></div>
+        <div class="fg"><label>Your Student ID</label><input type="text" id="sc-sid" placeholder="e.g. STU-2024-001" /></div>
+        <input type="hidden" id="sc-token" />
+        <div class="alert alert-info" style="margin-bottom:16px;" id="sc-token-status">⏳ Reading token from URL...</div>
+        <button class="btn btn-primary" id="scan-btn" onclick="doScan()">✓ Mark Present</button>
+      </div>
+      <div id="scan-result" class="scan-result"></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /.app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// QRShield Frontend — talks to Express backend via REST API
+// ═══════════════════════════════════════════════════════════════
+const API = ''; // same origin — backend serves this file
+
+let authToken = localStorage.getItem('qrs_token');
+let currentTeacher = JSON.parse(localStorage.getItem('qrs_teacher') || 'null');
+let activeSessionId = null;
+let qrInterval = null;
+let countdown = null;
+let countSec = 7;
+
+// ── ROUTING ────────────────────────────────────────────────────
+function showView(id) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function route() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('t');
+
+  if (token) {
+    // Student landed here from QR scan
+    showView('view-scan');
+    document.getElementById('sc-token').value = token;
+    document.getElementById('sc-token-status').textContent = '✅ Token loaded from QR code. Fill your details and submit.';
+    document.getElementById('sc-token-status').className = 'alert alert-success';
+    return;
+  }
+
+  if (authToken && currentTeacher) {
+    showView('view-dash');
+    document.getElementById('hdr-user').textContent = currentTeacher.name;
+    document.getElementById('hdr-user').style.display = 'inline';
+    document.getElementById('hdr-logout').style.display = 'inline-flex';
+    document.getElementById('dash-name').textContent = `— ${currentTeacher.name}`;
+    refreshDashboard();
+  } else {
+    showView('view-login');
+  }
+}
+
+// ── API HELPER ─────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (authToken) opts.headers['Authorization'] = `Bearer ${authToken}`;
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+function showAlert(id, msg, type = 'error') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = `<div class="alert alert-${type}">${msg}</div>`;
+  setTimeout(() => { el.innerHTML = ''; }, 5000);
+}
+
+// ── AUTH ───────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('l-email').value.trim();
+  const pass = document.getElementById('l-pass').value;
+  if (!email || !pass) return showAlert('login-alert', '❌ Fill all fields');
+  const btn = document.getElementById('login-btn');
+  btn.innerHTML = '<div class="spinner"></div>';
+  btn.disabled = true;
+  try {
+    const data = await api('POST', '/api/auth/login', { email, password: pass });
+    authToken = data.token;
+    currentTeacher = data.teacher;
+    localStorage.setItem('qrs_token', authToken);
+    localStorage.setItem('qrs_teacher', JSON.stringify(currentTeacher));
+    route();
+  } catch(e) {
+    showAlert('login-alert', '❌ ' + e.message);
+    btn.innerHTML = 'Login →';
+    btn.disabled = false;
+  }
+}
+
+function logout() {
+  stopQRCycle();
+  authToken = null;
+  currentTeacher = null;
+  activeSessionId = null;
+  localStorage.removeItem('qrs_token');
+  localStorage.removeItem('qrs_teacher');
+  document.getElementById('hdr-user').style.display = 'none';
+  document.getElementById('hdr-logout').style.display = 'none';
+  showView('view-login');
+}
+
+// ── CLASSES ────────────────────────────────────────────────────
+async function createClass() {
+  const name = document.getElementById('cls-name-input').value.trim();
+  if (!name) return;
+  try {
+    await api('POST', '/api/classes', { name });
+    document.getElementById('cls-name-input').value = '';
+    refreshDashboard();
+  } catch(e) { alert(e.message); }
+}
+
+async function startSession(classId) {
+  if (activeSessionId) return alert('Stop the current session first.');
+  try {
+    const data = await api('POST', '/api/sessions/start', { classId });
+    activeSessionId = data.sessionId;
+    document.getElementById('qr-card').style.display = 'block';
+    document.getElementById('qr-class-name').textContent = data.className;
+    startQRCycle();
+    refreshDashboard();
+  } catch(e) { alert(e.message); }
+}
+
+async function stopSession() {
+  if (!activeSessionId) return;
+  try {
+    await api('POST', `/api/sessions/${activeSessionId}/stop`);
+    stopQRCycle();
+    activeSessionId = null;
+    document.getElementById('qr-card').style.display = 'none';
+    refreshDashboard();
+  } catch(e) { alert(e.message); }
+}
+
+// ── QR CYCLE ───────────────────────────────────────────────────
+function startQRCycle() {
+  fetchQR();
+  countSec = 7;
+  qrInterval = setInterval(fetchQR, 7000);
+  countdown = setInterval(() => {
+    countSec--;
+    const el = document.getElementById('qr-timer');
+    if (el) {
+      el.textContent = countSec;
+      el.className = 'qr-timer' + (countSec <= 2 ? ' danger' : countSec <= 4 ? ' warn' : '');
+    }
+    const prog = document.getElementById('qr-prog');
+    if (prog) {
+      prog.style.width = ((countSec / 7) * 100) + '%';
+      prog.style.background = countSec <= 2 ? 'var(--accent2)' : countSec <= 4 ? 'var(--warning)' : 'var(--accent)';
+    }
+  }, 1000);
+}
+
+function stopQRCycle() {
+  clearInterval(qrInterval);
+  clearInterval(countdown);
+  qrInterval = null;
+  countdown = null;
+  countSec = 7;
+}
+
+async function fetchQR() {
+  if (!activeSessionId) return;
+  try {
+    const data = await api('GET', `/api/sessions/${activeSessionId}/qr`);
+    const img = document.getElementById('qr-img');
+    if (img) img.src = data.qrDataUrl;
+    const snip = document.getElementById('qr-token-snip');
+    if (snip) snip.textContent = data.token.substring(0, 64) + '…';
+    countSec = 7;
+    fetchAttendees();
+  } catch(e) {
+    console.error('QR fetch failed:', e.message);
+  }
+}
+
+async function fetchAttendees() {
+  if (!activeSessionId) return;
+  try {
+    const data = await api('GET', `/api/sessions/${activeSessionId}/attendees`);
+    document.getElementById('scan-count').textContent = data.count;
+    const list = document.getElementById('live-list');
+    if (!data.attendees.length) {
+      list.innerHTML = '<div class="empty"><div class="ei">📋</div><p>Waiting for students…</p></div>';
+    } else {
+      list.innerHTML = data.attendees.map(a => `
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--border);">
+          <div style="width:34px;height:34px;border-radius:8px;background:rgba(0,255,136,0.1);display:grid;place-items:center;">👤</div>
+          <div>
+            <div style="font-weight:700;font-size:0.87rem;">${a.studentName}</div>
+            <div style="font-size:0.7rem;color:var(--muted);font-family:'Space Mono',monospace;">${a.studentId} · ${new Date(a.markedAt).toLocaleTimeString()}</div>
+          </div>
+          <span class="pill pill-g ml-auto">✓ PRESENT</span>
+        </div>`).join('');
+    }
+  } catch(e) {}
+}
+
+// ── DASHBOARD REFRESH ──────────────────────────────────────────
+async function refreshDashboard() {
+  try {
+    const [classesData, reportsData, fraudData, sessData] = await Promise.all([
+      api('GET', '/api/classes'),
+      api('GET', '/api/attendance/report'),
+      api('GET', '/api/attendance/fraud'),
+      api('GET', '/api/sessions'),
+    ]);
+
+    // Stats
+    document.getElementById('s-attend').textContent = reportsData.count;
+    document.getElementById('s-class').textContent = classesData.length;
+    document.getElementById('s-fraud').textContent = fraudData.count;
+    const activeSess = sessData.filter(s => s.active).length;
+    document.getElementById('s-sess').textContent = activeSess;
+
+    // Classes list
+    const clsList = document.getElementById('classes-list');
+    if (!classesData.length) {
+      clsList.innerHTML = '<div class="empty"><div class="ei">📭</div><p>No classes yet.</p></div>';
+    } else {
+      clsList.innerHTML = classesData.map(cls => {
+        const isLive = sessData.some(s => s.classId === cls.id && s.active);
+        return `<div class="cls-card">
+          <div class="cls-icon">${isLive ? '📡' : '📚'}</div>
+          <div class="cls-info">
+            <h3>${cls.name}</h3>
+            <p>Sessions: ${cls.sessionCount || 0} &nbsp;|&nbsp; Attendances: ${cls.totalAttendance || 0}</p>
+          </div>
+          ${isLive
+            ? `<span class="pill pill-g">LIVE</span>`
+            : `<button class="btn btn-secondary btn-sm" onclick="startSession('${cls.id}')">▶ Start</button>`}
+          <button class="btn btn-danger btn-sm" onclick="deleteClass('${cls.id}')">🗑</button>
+        </div>`;
+      }).join('');
+    }
+
+    // Report
+    const reportTbody = document.getElementById('report-tbody');
+    document.getElementById('report-empty').style.display = reportsData.records.length ? 'none' : 'block';
+    reportTbody.innerHTML = [...reportsData.records].reverse().map(r => `
+      <tr>
+        <td><strong>${r.studentName}</strong></td>
+        <td><span style="font-family:'Space Mono',monospace;font-size:0.8rem;">${r.studentId}</span></td>
+        <td>${r.className}</td>
+        <td><span style="font-family:'Space Mono',monospace;font-size:0.75rem;">${new Date(r.markedAt).toLocaleString()}</span></td>
+        <td><span class="pill pill-g">PRESENT</span></td>
+      </tr>`).join('');
+
+    // Fraud
+    const fraudTbody = document.getElementById('fraud-tbody');
+    document.getElementById('fraud-empty').style.display = fraudData.logs.length ? 'none' : 'block';
+    fraudTbody.innerHTML = fraudData.logs.slice(0, 50).map(f => `
+      <tr>
+        <td><span style="font-family:'Space Mono',monospace;font-size:0.75rem;">${new Date(f.time).toLocaleTimeString()}</span></td>
+        <td><span class="pill pill-r">${f.reason}</span></td>
+        <td style="font-size:0.83rem;">${f.studentName || '—'} <span style="color:var(--muted);font-size:0.72rem;">(${f.studentId || '?'})</span></td>
+        <td><span style="font-family:'Space Mono',monospace;font-size:0.68rem;color:var(--muted);">${f.tokenSnippet}</span></td>
+      </tr>`).join('');
+
+  } catch(e) {
+    if (e.message.includes('401') || e.message === 'Invalid or expired session') logout();
+  }
+}
+
+async function deleteClass(id) {
+  if (!confirm('Delete this class?')) return;
+  try { await api('DELETE', `/api/classes/${id}`); refreshDashboard(); } catch(e) { alert(e.message); }
+}
+
+// ── STUDENT SCAN ────────────────────────────────────────────────
+async function doScan() {
+  const name = document.getElementById('sc-name').value.trim();
+  const sid = document.getElementById('sc-sid').value.trim();
+  const token = document.getElementById('sc-token').value.trim();
+  const result = document.getElementById('scan-result');
+  const btn = document.getElementById('scan-btn');
+
+  if (!name) return showAlert('scan-alert', '❌ Enter your full name');
+  if (!sid) return showAlert('scan-alert', '❌ Enter your Student ID');
+  if (!token) return showAlert('scan-alert', '❌ No token found — scan the QR again');
+
+  btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div>';
+  btn.disabled = true;
+  result.style.display = 'none';
+
+  try {
+    const data = await api('POST', '/api/attendance/scan', { token, studentName: name, studentId: sid });
+    result.className = 'scan-result ok';
+    result.style.display = 'block';
+    result.innerHTML = `✅ Attendance marked!<br><span style="font-weight:400;font-size:0.85rem;">${data.record.className} — ${new Date(data.record.markedAt).toLocaleTimeString()}</span>`;
+    btn.innerHTML = '✓ Done!';
+  } catch(e) {
+    result.className = 'scan-result fail';
+    result.style.display = 'block';
+    result.textContent = '❌ ' + e.message;
+    btn.innerHTML = '✓ Mark Present';
+    btn.disabled = false;
+  }
+}
+
+// ── TABS ────────────────────────────────────────────────────────
+function switchTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+  if (id === 'tab-reports' || id === 'tab-fraud') refreshDashboard();
+}
+
+// ── KEYBOARD ────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    if (document.getElementById('view-login').classList.contains('active')) doLogin();
+    if (document.getElementById('view-scan').classList.contains('active')) doScan();
+  }
+});
+
+// ── INIT ────────────────────────────────────────────────────────
+route();
+</script>
+</body>
+</html>
