@@ -1,56 +1,64 @@
-// ─────────────────────────────────────────────────────────────────
-// middleware.js — Auth, Rate Limiting, Request Logging
-// ─────────────────────────────────────────────────────────────────
 const jwt = require('jsonwebtoken');
+
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-change-in-production';
 
-// Simple in-memory rate limiter per IP
-// In production: use Redis-based rate limiter (e.g. rate-limiter-flexible)
-const scanAttempts = new Map(); // ip → [timestamps]
-const SCAN_WINDOW_MS = 5000;   // 5 seconds
-const SCAN_MAX_ATTEMPTS = 3;   // max 3 scans per 5 seconds
-
+// ── requireTeacher — verifies Bearer JWT, attaches req.teacher
 function requireTeacher(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'No token provided' });
   }
-
-  const token = authHeader.slice(7);
+  const token = auth.slice(7);
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.teacher = decoded;
     next();
   } catch (e) {
-    return res.status(401).json({ error: 'Invalid or expired session' });
+    if (e.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired. Please log in again.' });
+    }
+    return res.status(401).json({ error: 'Invalid token' });
   }
 }
+
+// ── rateLimitScans — in-memory per-IP: max 5 scans per 10 seconds
+const scanAttempts = new Map();
+const SCAN_WINDOW_MS = 10000;
+const SCAN_MAX = 5;
+
+// Cleanup old entries every 60 seconds to prevent memory leak
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of scanAttempts.entries()) {
+    if (now - data.start > SCAN_WINDOW_MS * 2) scanAttempts.delete(ip);
+  }
+}, 60000);
 
 function rateLimitScans(req, res, next) {
   const ip = req.ip || req.connection.remoteAddress;
   const now = Date.now();
+  const entry = scanAttempts.get(ip);
 
-  if (!scanAttempts.has(ip)) scanAttempts.set(ip, []);
-  const attempts = scanAttempts.get(ip).filter(t => now - t < SCAN_WINDOW_MS);
-
-  if (attempts.length >= SCAN_MAX_ATTEMPTS) {
-    return res.status(429).json({
-      error: 'RATE_LIMITED',
-      message: `Too many scan attempts. Max ${SCAN_MAX_ATTEMPTS} per ${SCAN_WINDOW_MS / 1000}s.`
-    });
+  if (!entry || now - entry.start > SCAN_WINDOW_MS) {
+    scanAttempts.set(ip, { count: 1, start: now });
+    return next();
   }
 
-  attempts.push(now);
-  scanAttempts.set(ip, attempts);
+  entry.count++;
+  if (entry.count > SCAN_MAX) {
+    return res.status(429).json({ error: 'Too many attempts. Please wait and try again.' });
+  }
   next();
 }
 
+// ── requestLogger — logs [statusCode] METHOD path - Xms
 function requestLogger(req, res, next) {
   const start = Date.now();
   res.on('finish', () => {
     const ms = Date.now() - start;
-    const color = res.statusCode >= 400 ? '\x1b[31m' : '\x1b[32m';
-    console.log(`${color}[${res.statusCode}]\x1b[0m ${req.method} ${req.path} - ${ms}ms`);
+    const code = res.statusCode;
+    const color = code >= 500 ? '\x1b[31m' : code >= 400 ? '\x1b[33m' : '\x1b[32m';
+    console.log(`${color}[${code}]\x1b[0m ${req.method} ${req.path} - ${ms}ms`);
   });
   next();
 }
