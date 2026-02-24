@@ -249,11 +249,14 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
     <!-- ── Tab: Fraud ── -->
     <div id="tab-fraud" class="tab-panel">
       <div class="card">
-        <div class="card-title">🚨 Fraud & Abuse Log</div>
+        <div class="card-title" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+          <span>🚨 Fraud & Abuse Log</span>
+          <button class="btn btn-danger btn-sm" onclick="clearAllFraud()">🗑 Clear All</button>
+        </div>
         <div class="alert alert-warning" style="margin-bottom:16px;">All rejected token attempts logged here — expired, replayed, tampered, rate-limited.</div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Time</th><th>Reason</th><th>Student</th><th>Token (snippet)</th></tr></thead>
+            <thead><tr><th>Time</th><th>Reason</th><th>Student</th><th>Token (snippet)</th><th>Action</th></tr></thead>
             <tbody id="fraud-tbody"></tbody>
           </table>
         </div>
@@ -426,7 +429,11 @@ async function startSession(classId) {
     teacherLat = pos.coords.latitude;
     teacherLng = pos.coords.longitude;
   } catch(e) {
-    const proceed = confirm('⚠️ Could not get your location.\n\nProximity enforcement will be DISABLED for this session — students can mark attendance from anywhere.\n\nProceed without location?');
+    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    const reason = !isHttps
+      ? '🔒 This app is running over HTTP (not HTTPS) — browsers block GPS on HTTP.\n\nTo enable proximity enforcement, deploy with HTTPS (e.g. Render, Railway, ngrok).\n\n'
+      : '📍 Location permission was denied or timed out.\n\n';
+    const proceed = confirm(reason + 'Proximity enforcement will be DISABLED for this session — students can mark attendance from anywhere.\n\nProceed without location?');
     if (!proceed) return;
   }
 
@@ -590,15 +597,7 @@ async function refreshDashboard() {
     renderReports();
 
     // Fraud log
-    const fraudTbody = document.getElementById('fraud-tbody');
-    document.getElementById('fraud-empty').style.display = fraudData.logs.length ? 'none' : 'block';
-    fraudTbody.innerHTML = fraudData.logs.slice(0, 100).map(f => `
-      <tr>
-        <td><span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;">${new Date(f.time).toLocaleString()}</span></td>
-        <td><span class="pill pill-r">${f.reason}</span></td>
-        <td style="font-size:0.83rem;">${f.studentName || '—'} <span style="color:var(--muted);font-size:0.72rem;">(${f.studentId || '?'})</span></td>
-        <td><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);">${f.tokenSnippet}</span></td>
-      </tr>`).join('');
+    renderFraudLog(fraudData.logs);
 
   } catch(e) {
     console.error('Dashboard refresh error:', e.message);
@@ -732,8 +731,15 @@ async function doScan() {
     statusEl.className = 'alert alert-success';
     statusEl.textContent = '✅ Location captured. Submitting...';
   } catch(e) {
+    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     statusEl.className = 'alert alert-warning';
-    statusEl.textContent = '⚠️ Location unavailable — submitting without location (may be flagged as unverified)';
+    if (!isHttps) {
+      statusEl.innerHTML = '⚠️ <strong>Location blocked by browser.</strong> This page must be opened over HTTPS for GPS to work. Contact your teacher.';
+    } else if (e.message === 'no-geo') {
+      statusEl.textContent = '⚠️ Your device does not support GPS. Submitting without location (will be flagged as unverified).';
+    } else {
+      statusEl.textContent = '⚠️ Location permission denied or timed out — submitting without location (will be flagged as unverified).';
+    }
   }
 
   btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div> Submitting...';
@@ -758,6 +764,43 @@ async function doScan() {
     btn.innerHTML = '✓ Mark Present';
     btn.disabled = false;
   }
+}
+
+// ── FRAUD LOG ───────────────────────────────────────────────────
+let currentFraudLogs = [];
+
+function renderFraudLog(logs) {
+  currentFraudLogs = logs || [];
+  const tbody = document.getElementById('fraud-tbody');
+  const empty = document.getElementById('fraud-empty');
+  document.getElementById('s-fraud').textContent = currentFraudLogs.length;
+  empty.style.display = currentFraudLogs.length ? 'none' : 'block';
+  tbody.innerHTML = currentFraudLogs.slice(0, 100).map((f, idx) => `
+    <tr>
+      <td><span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;">${new Date(f.time).toLocaleString()}</span></td>
+      <td><span class="pill pill-r">${f.reason}</span></td>
+      <td style="font-size:0.83rem;">${f.studentName || '—'} <span style="color:var(--muted);font-size:0.72rem;">(${f.studentId || '?'})</span></td>
+      <td><span style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--muted);">${f.tokenSnippet}</span></td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteFraudEntry(${idx})">🗑</button></td>
+    </tr>`).join('');
+}
+
+async function clearAllFraud() {
+  if (!currentFraudLogs.length) return alert('No fraud logs to clear.');
+  if (!confirm(`Clear all ${currentFraudLogs.length} fraud log entries? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', '/api/attendance/fraud/all');
+    renderFraudLog([]);
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteFraudEntry(idx) {
+  if (!confirm('Remove this fraud log entry?')) return;
+  try {
+    await api('DELETE', `/api/attendance/fraud/${idx}`);
+    currentFraudLogs.splice(idx, 1);
+    renderFraudLog(currentFraudLogs);
+  } catch(e) { alert(e.message); }
 }
 
 // ── TABS ────────────────────────────────────────────────────────

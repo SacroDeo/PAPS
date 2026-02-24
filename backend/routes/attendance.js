@@ -202,17 +202,38 @@ router.get('/report', requireTeacher, (req, res) => {
 // ── GET /api/attendance/fraud — fraud log (teacher only)
 router.get('/fraud', requireTeacher, (req, res) => {
   try {
-    // Only return fraud related to this teacher's sessions
-    const teacherSessionIds = new Set(
-      [...sessions.values()]
-        .filter(s => s.teacherId === req.teacher.id)
-        .map(s => s.id)
-    );
-
-    // fraudLogs don't have sessionId directly, return all for now (can be scoped later)
     res.json({ logs: fraudLogs.slice(0, 200), count: fraudLogs.length });
   } catch (e) {
     console.error('[ATTENDANCE] fraud error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /api/attendance/fraud/all — clear entire fraud log (teacher only)
+router.delete('/fraud/all', requireTeacher, (req, res) => {
+  try {
+    const count = fraudLogs.length;
+    fraudLogs.length = 0;
+    console.log(`\x1b[33m[FRAUD]\x1b[0m All ${count} fraud logs cleared by ${req.teacher.email}`);
+    res.json({ message: 'All fraud logs cleared', count });
+  } catch (e) {
+    console.error('[ATTENDANCE] fraud clear all error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /api/attendance/fraud/:index — clear single fraud entry (teacher only)
+router.delete('/fraud/:index', requireTeacher, (req, res) => {
+  try {
+    const idx = parseInt(req.params.index);
+    if (isNaN(idx) || idx < 0 || idx >= fraudLogs.length) {
+      return res.status(404).json({ error: 'Fraud log entry not found' });
+    }
+    fraudLogs.splice(idx, 1);
+    console.log(`\x1b[33m[FRAUD]\x1b[0m Entry ${idx} deleted by ${req.teacher.email}`);
+    res.json({ message: 'Fraud log entry deleted' });
+  } catch (e) {
+    console.error('[ATTENDANCE] fraud delete error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
