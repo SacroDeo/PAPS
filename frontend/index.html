@@ -135,7 +135,7 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
     <div class="auth-box">
       <div class="auth-hero">
         <h1>Attendance That<br>Can't Be <em>Cheated</em></h1>
-        <p>Cryptographic QR tokens that expire in 15 seconds.<br>Teacher dashboard. No student accounts needed.</p>
+        <p>Cryptographic QR tokens that expire in 30 seconds.<br>Teacher dashboard. No student accounts needed.</p>
       </div>
       <div class="auth-card">
         <div id="login-alert"></div>
@@ -188,7 +188,7 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
               <div style="font-size:0.8rem;line-height:2;color:var(--muted);">
                 ✅ HMAC-SHA256 signed on server<br>
                 ✅ Secret key never sent to client<br>
-                ✅ 15-second hard expiry<br>
+                ✅ 30-second hard expiry<br>
                 ✅ Random nonce per token<br>
                 ✅ One-time use enforced<br>
                 ✅ Rate limiting active<br>
@@ -299,7 +299,7 @@ let currentTeacher = JSON.parse(localStorage.getItem('qrs_teacher') || 'null');
 let activeSessionId = null;
 let qrInterval = null;
 let countdown = null;
-let countSec = 15;
+let countSec = 30;
 let allReportRecords = [];
 let reportViewGrouped = false;
 
@@ -317,8 +317,9 @@ function route() {
     // Student landed here from QR scan
     showView('view-scan');
     document.getElementById('sc-token').value = token;
-    document.getElementById('sc-token-status').textContent = '✅ Token loaded from QR code. Fill your details and submit.';
-    document.getElementById('sc-token-status').className = 'alert alert-success';
+    // Kick off GPS immediately in the background — by the time student fills the form,
+    // location will likely already be captured and submit won't need to wait.
+    startEarlyGPS();
     return;
   }
 
@@ -476,19 +477,19 @@ async function stopSession() {
 // ── QR CYCLE ───────────────────────────────────────────────────
 function startQRCycle() {
   fetchQR();
-  countSec = 15;
-  qrInterval = setInterval(fetchQR, 15000);
+  countSec = 30;
+  qrInterval = setInterval(fetchQR, 30000);
   countdown = setInterval(() => {
     countSec--;
     const el = document.getElementById('qr-timer');
     if (el) {
       el.textContent = countSec;
-      el.className = 'qr-timer' + (countSec <= 3 ? ' danger' : countSec <= 7 ? ' warn' : '');
+      el.className = 'qr-timer' + (countSec <= 5 ? ' danger' : countSec <= 10 ? ' warn' : '');
     }
     const prog = document.getElementById('qr-prog');
     if (prog) {
-      prog.style.width = ((countSec / 15) * 100) + '%';
-      prog.style.background = countSec <= 3 ? 'var(--accent2)' : countSec <= 7 ? 'var(--warning)' : 'var(--accent)';
+      prog.style.width = ((countSec / 30) * 100) + '%';
+      prog.style.background = countSec <= 5 ? 'var(--accent2)' : countSec <= 10 ? 'var(--warning)' : 'var(--accent)';
     }
   }, 1000);
 }
@@ -498,7 +499,7 @@ function stopQRCycle() {
   clearInterval(countdown);
   qrInterval = null;
   countdown = null;
-  countSec = 15;
+  countSec = 30;
 }
 
 async function fetchQR() {
@@ -509,7 +510,7 @@ async function fetchQR() {
     if (img) img.src = data.qr; // backend returns { qr, token, ... }
     const snip = document.getElementById('qr-token-snip');
     if (snip && data.token) snip.textContent = data.token.substring(0, 64) + '…';
-    countSec = 15; // reset countdown exactly on new QR
+    countSec = 30; // reset countdown exactly on new QR
   } catch(e) {
     console.error('QR fetch failed:', e.message);
   }
@@ -705,6 +706,67 @@ async function deleteClass(id, e) {
 }
 
 // ── STUDENT SCAN ────────────────────────────────────────────────
+// GPS is captured eagerly on page load so it's ready before the student clicks submit.
+let _studentLat = null, _studentLng = null;
+let _gpsReady = false;        // true = we have coords
+let _gpsSkipped = false;      // true = geo unavailable / denied
+let _gpsPromise = null;       // resolves when GPS attempt is complete
+
+function startEarlyGPS() {
+  const statusEl = document.getElementById('sc-token-status');
+  const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+  if (!isHttps) {
+    _gpsSkipped = true;
+    _gpsPromise = Promise.resolve();
+    if (statusEl) {
+      statusEl.className = 'alert alert-warning';
+      statusEl.innerHTML = '⚠️ <strong>Location blocked by browser.</strong> This page must be opened over HTTPS for GPS to work. Contact your teacher.';
+    }
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    _gpsSkipped = true;
+    _gpsPromise = Promise.resolve();
+    if (statusEl) {
+      statusEl.className = 'alert alert-warning';
+      statusEl.textContent = '⚠️ Your device does not support GPS. Submitting without location (will be flagged as unverified).';
+    }
+    return;
+  }
+
+  // Start GPS fetch immediately in background
+  if (statusEl) {
+    statusEl.className = 'alert alert-info';
+    statusEl.textContent = '📍 Detecting your location in the background...';
+  }
+
+  _gpsPromise = new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        _studentLat = pos.coords.latitude;
+        _studentLng = pos.coords.longitude;
+        _gpsReady = true;
+        if (statusEl) {
+          statusEl.className = 'alert alert-success';
+          statusEl.textContent = '✅ Location ready. Fill in your details and submit.';
+        }
+        resolve();
+      },
+      () => {
+        _gpsSkipped = true;
+        if (statusEl) {
+          statusEl.className = 'alert alert-warning';
+          statusEl.textContent = '⚠️ Location permission denied or timed out — submitting without location (will be flagged as unverified).';
+        }
+        resolve(); // don't reject — allow form to submit without location
+      },
+      { timeout: 10000, enableHighAccuracy: true }
+    );
+  });
+}
+
 async function doScan() {
   const name = document.getElementById('sc-name').value.trim();
   const sid = document.getElementById('sc-sid').value.trim();
@@ -714,39 +776,21 @@ async function doScan() {
 
   const btn = document.getElementById('scan-btn');
   const statusEl = document.getElementById('sc-token-status');
-  btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div> Getting location...';
   btn.disabled = true;
 
-  // Try to get student location
-  let studentLat = null, studentLng = null;
-  try {
+  // If GPS is still in progress, wait for it (it had a head start since page load)
+  if (!_gpsReady && !_gpsSkipped && _gpsPromise) {
+    btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div> Waiting for location...';
     statusEl.className = 'alert alert-info';
-    statusEl.textContent = '📍 Requesting your location...';
-    const pos = await new Promise((resolve, reject) => {
-      if (!navigator.geolocation) return reject(new Error('no-geo'));
-      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000, enableHighAccuracy: true });
-    });
-    studentLat = pos.coords.latitude;
-    studentLng = pos.coords.longitude;
-    statusEl.className = 'alert alert-success';
-    statusEl.textContent = '✅ Location captured. Submitting...';
-  } catch(e) {
-    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    statusEl.className = 'alert alert-warning';
-    if (!isHttps) {
-      statusEl.innerHTML = '⚠️ <strong>Location blocked by browser.</strong> This page must be opened over HTTPS for GPS to work. Contact your teacher.';
-    } else if (e.message === 'no-geo') {
-      statusEl.textContent = '⚠️ Your device does not support GPS. Submitting without location (will be flagged as unverified).';
-    } else {
-      statusEl.textContent = '⚠️ Location permission denied or timed out — submitting without location (will be flagged as unverified).';
-    }
+    statusEl.textContent = '📍 Almost there — waiting for GPS fix...';
+    await _gpsPromise;
   }
 
   btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div> Submitting...';
 
   try {
     const payload = { token, studentName: name, studentId: sid };
-    if (studentLat != null) { payload.studentLat = studentLat; payload.studentLng = studentLng; }
+    if (_studentLat != null) { payload.studentLat = _studentLat; payload.studentLng = _studentLng; }
     const data = await api('POST', '/api/attendance/scan', payload);
     const res = document.getElementById('scan-result');
     res.className = 'scan-result ok';
