@@ -276,18 +276,37 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
 <div id="view-scan" class="view">
   <div class="scan-wrap">
     <div class="scan-box">
-      <div style="font-size:3rem;margin-bottom:16px;">📷</div>
-      <h2>Mark Attendance</h2>
-      <p>Enter your details below.<br>The token from the QR code is in the URL automatically.</p>
-      <div class="auth-card" style="text-align:left;margin-top:24px;">
-        <div id="scan-alert"></div>
-        <div class="fg"><label>Your Full Name</label><input type="text" id="sc-name" placeholder="John Doe" /></div>
-        <div class="fg"><label>Your Student ID</label><input type="text" id="sc-sid" placeholder="e.g. STU-2024-001" /></div>
-        <input type="hidden" id="sc-token" />
-        <div class="alert alert-info" style="margin-bottom:16px;" id="sc-token-status">⏳ Reading token from URL...</div>
-        <button class="btn btn-primary" id="scan-btn" onclick="doScan()">✓ Mark Present</button>
+
+      <!-- ── Blocked screen — shown when link is shared / invalid / expired ── -->
+      <div id="scan-blocked" style="display:none;">
+        <div style="font-size:4rem;margin-bottom:16px;">🚫</div>
+        <h2 style="color:var(--accent2);margin-bottom:12px;" id="scan-blocked-title">Link Invalid</h2>
+        <div class="auth-card" style="text-align:left;margin-top:24px;border-color:rgba(255,51,102,0.4);">
+          <div class="alert alert-error" id="scan-blocked-msg" style="font-size:0.95rem;line-height:1.7;"></div>
+          <div style="font-size:0.82rem;color:var(--muted);line-height:1.7;margin-top:8px;">
+            🔒 Each QR link is single-use and bound to the first device that opens it.<br>
+            📱 To mark your attendance, <strong style="color:var(--text);">scan the QR code directly</strong> from the projector/screen with your own device's camera.<br>
+            ⏱ QR codes refresh every 30 seconds — scan the latest one shown on screen.
+          </div>
+        </div>
       </div>
-      <div id="scan-result" class="scan-result"></div>
+
+      <!-- ── Normal form — shown when link is valid ── -->
+      <div id="scan-form">
+        <div style="font-size:3rem;margin-bottom:16px;">📷</div>
+        <h2>Mark Attendance</h2>
+        <p>Enter your details below.<br>The token from the QR code is in the URL automatically.</p>
+        <div class="auth-card" style="text-align:left;margin-top:24px;">
+          <div id="scan-alert"></div>
+          <div class="fg"><label>Your Full Name</label><input type="text" id="sc-name" placeholder="John Doe" /></div>
+          <div class="fg"><label>Your Student ID</label><input type="text" id="sc-sid" placeholder="e.g. STU-2024-001" /></div>
+          <input type="hidden" id="sc-token" />
+          <div class="alert alert-info" style="margin-bottom:16px;" id="sc-token-status">⏳ Reading token from URL...</div>
+          <button class="btn btn-primary" id="scan-btn" onclick="doScan()">✓ Mark Present</button>
+        </div>
+        <div id="scan-result" class="scan-result"></div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -352,20 +371,34 @@ function route() {
     (async () => {
       try {
         await api('POST', '/api/attendance/claim', { token, deviceId: getDeviceId() });
-        // Claim succeeded — form stays enabled (already shown)
-        // Status is already being updated by startEarlyGPS()
+        // Claim succeeded — form stays enabled, GPS status already shown
       } catch(e) {
-        // Token already claimed by another device, expired, or invalid
-        if (statusEl) {
-          statusEl.className = 'alert alert-error';
-          statusEl.textContent = '❌ ' + (e.message.includes('already been opened')
-            ? 'This QR link has already been opened on another device. Please scan the QR code directly from the screen.'
-            : e.message);
+        const msg = e.message || '';
+        if (msg.includes('already been opened') || msg.includes('different device')) {
+          showBlockedScreen(
+            '🔗 Shared Link Detected',
+            '⛔ This QR link has already been opened on <strong>another device</strong>.<br><br>' +
+            'Someone shared this link with you — but that is not allowed.<br><br>' +
+            'You must <strong>scan the QR code directly</strong> from the classroom screen with your own camera.'
+          );
+        } else if (msg.includes('expired') || msg.includes('Invalid or expired')) {
+          showBlockedScreen(
+            '⏱ QR Code Expired',
+            '⌛ This QR code has <strong>expired</strong> before you could open it.<br><br>' +
+            'QR codes refresh every 30 seconds. Please <strong>scan the latest QR code</strong> shown on the classroom screen.'
+          );
+        } else if (msg.includes('Suspicious') || msg.includes('farm')) {
+          showBlockedScreen(
+            '🚨 Suspicious Activity',
+            '⛔ Suspicious activity detected from your network.<br><br>' +
+            'Please contact your teacher if you believe this is a mistake.'
+          );
+        } else {
+          showBlockedScreen(
+            '❌ Link Invalid',
+            '⛔ ' + msg + '<br><br>Please <strong>scan the QR code directly</strong> from the classroom screen.'
+          );
         }
-        // Disable the form — this link is dead
-        if (btn) { btn.disabled = true; btn.textContent = '✗ Link Invalid'; }
-        document.getElementById('sc-name').disabled = true;
-        document.getElementById('sc-sid').disabled = true;
       }
     })();
     return;
@@ -799,6 +832,14 @@ window.addEventListener('storage', (e) => {
   }
 });
 
+// ── BLOCKED SCREEN — replaces the form with a full error screen ─
+function showBlockedScreen(title, message) {
+  document.getElementById('scan-form').style.display = 'none';
+  document.getElementById('scan-blocked').style.display = 'block';
+  document.getElementById('scan-blocked-title').textContent = title;
+  document.getElementById('scan-blocked-msg').innerHTML = message;
+}
+
 // ── SUBMISSION STATE — persisted to sessionStorage ─────────────
 // Tracks whether this tab has already successfully submitted for a session.
 // Survives F5 refresh. Prevents the page reload → re-submit trick.
@@ -811,15 +852,18 @@ function hasSubmitted(sessionHint) {
 
 function startEarlyGPS() {
   const statusEl = document.getElementById('sc-token-status');
+  const btn = document.getElementById('scan-btn');
   const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
+  // ── GPS is MANDATORY — if unavailable, block the form immediately
   if (!isHttps) {
     _gpsSkipped = true;
     _gpsPromise = Promise.resolve();
     if (statusEl) {
-      statusEl.className = 'alert alert-warning';
-      statusEl.innerHTML = '⚠️ <strong>Location blocked by browser.</strong> This page must be opened over HTTPS for GPS to work. Contact your teacher.';
+      statusEl.className = 'alert alert-error';
+      statusEl.innerHTML = '❌ <strong>Location blocked by browser.</strong> This page must be opened over HTTPS for GPS to work. Please scan the QR code again using a proper connection.';
     }
+    if (btn) { btn.disabled = true; btn.textContent = '✗ Location Required'; }
     return;
   }
 
@@ -827,16 +871,17 @@ function startEarlyGPS() {
     _gpsSkipped = true;
     _gpsPromise = Promise.resolve();
     if (statusEl) {
-      statusEl.className = 'alert alert-warning';
-      statusEl.textContent = '⚠️ Your device does not support GPS. Submitting without location (will be flagged as unverified).';
+      statusEl.className = 'alert alert-error';
+      statusEl.textContent = '❌ Your device does not support GPS. Location is required to mark attendance. Please use a different device.';
     }
+    if (btn) { btn.disabled = true; btn.textContent = '✗ Location Required'; }
     return;
   }
 
   // Start GPS fetch immediately in background
   if (statusEl) {
     statusEl.className = 'alert alert-info';
-    statusEl.textContent = '📍 Detecting your location in the background...';
+    statusEl.textContent = '📍 Detecting your location... Please allow location access when prompted.';
   }
 
   _gpsPromise = new Promise((resolve) => {
@@ -847,17 +892,22 @@ function startEarlyGPS() {
         _gpsReady = true;
         if (statusEl) {
           statusEl.className = 'alert alert-success';
-          statusEl.textContent = '✅ Location ready. Fill in your details and submit.';
+          statusEl.textContent = '✅ Location captured. Fill in your details and submit.';
         }
         resolve();
       },
-      () => {
+      (err) => {
+        // GPS denied or failed — block the form, GPS is mandatory
         _gpsSkipped = true;
+        const msg = err.code === 1
+          ? '❌ Location permission denied. You must allow location access to mark attendance. Please refresh and allow location.'
+          : '❌ Could not get your location (timed out). Please ensure GPS is enabled and try again.';
         if (statusEl) {
-          statusEl.className = 'alert alert-warning';
-          statusEl.textContent = '⚠️ Location permission denied or timed out — submitting without location (will be flagged as unverified).';
+          statusEl.className = 'alert alert-error';
+          statusEl.textContent = msg;
         }
-        resolve(); // don't reject — allow form to submit without location
+        if (btn) { btn.disabled = true; btn.textContent = '✗ Location Required'; }
+        resolve(); // resolve so doScan() doesn't hang — but form is disabled anyway
       },
       { timeout: 10000, enableHighAccuracy: true }
     );
@@ -894,6 +944,15 @@ async function doScan() {
     await _gpsPromise;
   }
 
+  // ── GPS mandatory guard — if GPS failed/denied, block submission entirely
+  if (_gpsSkipped || (!_gpsReady && _studentLat === null)) {
+    statusEl.className = 'alert alert-error';
+    statusEl.textContent = '❌ Location is required to mark attendance. Please allow GPS access and refresh the page.';
+    btn.disabled = true;
+    btn.textContent = '✗ Location Required';
+    return;
+  }
+
   btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div> Submitting...';
 
   try {
@@ -917,14 +976,50 @@ async function doScan() {
     document.getElementById('sc-sid').disabled = true;
 
   } catch(e) {
-    const msg = e.message.includes('TOO_FAR') || e.message.includes('away')
-      ? `📍 ${e.message}`
-      : '❌ ' + e.message;
-    showAlert('scan-alert', msg);
-    statusEl.className = 'alert alert-info';
-    statusEl.textContent = '🔁 Fix the issue above and try again.';
-    btn.innerHTML = '✓ Mark Present';
-    btn.disabled = false;
+    const msg = e.message || '';
+    if (msg.includes('already been marked from this device') || msg.includes('DUPLICATE')) {
+      showBlockedScreen(
+        '✅ Already Submitted',
+        '📋 Attendance has already been marked from <strong>this device</strong> for this session.<br><br>' +
+        'You cannot submit twice.'
+      );
+    } else if (msg.includes('network connection') || msg.includes('DUPLICATE_IP')) {
+      showBlockedScreen(
+        '✅ Already Submitted',
+        '📋 Attendance has already been marked from <strong>this network connection</strong> for this session.<br><br>' +
+        'You cannot submit twice.'
+      );
+    } else if (msg.includes('different device') || msg.includes('opened on a different')) {
+      showBlockedScreen(
+        '🔗 Shared Link Detected',
+        '⛔ This QR link was opened on a <strong>different device</strong>.<br><br>' +
+        'You must <strong>scan the QR code directly</strong> from the classroom screen with your own camera.'
+      );
+    } else if (msg.includes('too far') || msg.includes('away') || msg.includes('TOO_FAR')) {
+      showAlert('scan-alert', `📍 ${msg}`);
+      statusEl.className = 'alert alert-warning';
+      statusEl.textContent = '📍 Move closer to the classroom and try again.';
+      btn.innerHTML = '✓ Mark Present';
+      btn.disabled = false;
+    } else if (msg.includes('Location is required') || msg.includes('GPS')) {
+      showBlockedScreen(
+        '📍 Location Required',
+        '❌ <strong>Location access is required</strong> to mark attendance.<br><br>' +
+        'Please refresh the page, allow location access when prompted, and try again.'
+      );
+    } else if (msg.includes('expired') || msg.includes('QR code expired')) {
+      showBlockedScreen(
+        '⏱ QR Code Expired',
+        '⌛ The QR code <strong>expired</strong> before your submission was received.<br><br>' +
+        'Please <strong>scan the latest QR code</strong> shown on the classroom screen and try again quickly.'
+      );
+    } else {
+      showAlert('scan-alert', '❌ ' + msg);
+      statusEl.className = 'alert alert-info';
+      statusEl.textContent = '🔁 Fix the issue above and try again.';
+      btn.innerHTML = '✓ Mark Present';
+      btn.disabled = false;
+    }
   }
 }
 
