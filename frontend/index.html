@@ -191,8 +191,14 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
                 ✅ 30-second hard expiry<br>
                 ✅ Random nonce per token<br>
                 ✅ One-time use enforced<br>
-                ✅ Rate limiting active<br>
+                ✅ Rate limiting (3 req/10s)<br>
                 ✅ Replay attacks blocked<br>
+                ✅ One submission per device<br>
+                ✅ One submission per IP<br>
+                ✅ Shared links invalidated<br>
+                ✅ Spoof farm detection<br>
+                ✅ URL token cleared after load<br>
+                ✅ F5 re-submit blocked<br>
                 <span id="loc-status-line">📍 Capturing teacher location...</span>
               </div>
             </div>
@@ -317,9 +323,49 @@ function route() {
     // Student landed here from QR scan
     showView('view-scan');
     document.getElementById('sc-token').value = token;
-    // Kick off GPS immediately in the background — by the time student fills the form,
-    // location will likely already be captured and submit won't need to wait.
-    startEarlyGPS();
+
+    // ── Replace the token in the URL bar with a clean path so students
+    // can't copy-paste the link and share it after the page loads.
+    try {
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch(e) {}
+
+    const statusEl = document.getElementById('sc-token-status');
+    const btn = document.getElementById('scan-btn');
+
+    // ── F5 / reload re-submit prevention: check if already submitted this session
+    // We use the first 16 chars of the token as a session hint (unique per QR cycle)
+    const sessionHint = token.slice(0, 16);
+    if (hasSubmitted(sessionHint)) {
+      statusEl.className = 'alert alert-success';
+      statusEl.textContent = '✅ Your attendance has already been marked for this session.';
+      if (btn) { btn.disabled = true; btn.textContent = '✓ Already Submitted'; }
+      document.getElementById('sc-name').disabled = true;
+      document.getElementById('sc-sid').disabled = true;
+      return;
+    }
+
+    // ── Claim the token immediately for this device — prevents shared links.
+    // Run in parallel with GPS; no need to await before showing the form.
+    (async () => {
+      try {
+        await api('POST', '/api/attendance/claim', { token, deviceId: getDeviceId() });
+        // GPS starts after successful claim
+        startEarlyGPS();
+      } catch(e) {
+        // Token already claimed by another device, expired, or invalid
+        if (statusEl) {
+          statusEl.className = 'alert alert-error';
+          statusEl.textContent = '❌ ' + (e.message.includes('already been opened')
+            ? 'This QR link has already been opened on another device. Please scan the QR code directly from the screen.'
+            : e.message);
+        }
+        // Disable the form — this link is dead
+        if (btn) { btn.disabled = true; btn.textContent = '✗ Link Invalid'; }
+        document.getElementById('sc-name').disabled = true;
+        document.getElementById('sc-sid').disabled = true;
+      }
+    })();
     return;
   }
 
@@ -712,6 +758,55 @@ let _gpsReady = false;        // true = we have coords
 let _gpsSkipped = false;      // true = geo unavailable / denied
 let _gpsPromise = null;       // resolves when GPS attempt is complete
 
+// ── DEVICE ID ──────────────────────────────────────────────────
+// A persistent UUID stored in BOTH localStorage AND sessionStorage.
+// Using both means:
+//   - localStorage: survives page close/reopen (catches "clear and reopen" trick)
+//   - sessionStorage: survives localStorage.clear() within the same tab session
+// If a student clears localStorage mid-session, sessionStorage still holds the ID
+// and the backend will reject the second attempt via deviceSessions map.
+function getDeviceId() {
+  // Try sessionStorage first (survives localStorage.clear() in same tab)
+  let id = sessionStorage.getItem('qrs_device_id') || localStorage.getItem('qrs_device_id');
+  if (!id) {
+    // Generate a cryptographically random UUID
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    arr[6] = (arr[6] & 0x0f) | 0x40; // version 4
+    arr[8] = (arr[8] & 0x3f) | 0x80; // variant
+    id = 'dev_' + [...arr].map((b, i) =>
+      ([4,6,8,10].includes(i) ? '-' : '') + b.toString(16).padStart(2, '0')
+    ).join('');
+  }
+  // Write to both storages — whichever survives is enough
+  try { localStorage.setItem('qrs_device_id', id); } catch(e) {}
+  try { sessionStorage.setItem('qrs_device_id', id); } catch(e) {}
+  return id;
+}
+
+// ── ANTI-DEVTOOLS / localStorage.clear() DETECTION ────────────
+// Watch for storage events — if qrs_device_id is removed from localStorage,
+// immediately restore it from sessionStorage so the deviceId stays consistent.
+window.addEventListener('storage', (e) => {
+  if (e.key === 'qrs_device_id' && e.newValue === null) {
+    // localStorage was cleared — restore from sessionStorage
+    const saved = sessionStorage.getItem('qrs_device_id');
+    if (saved) {
+      try { localStorage.setItem('qrs_device_id', saved); } catch(ex) {}
+    }
+  }
+});
+
+// ── SUBMISSION STATE — persisted to sessionStorage ─────────────
+// Tracks whether this tab has already successfully submitted for a session.
+// Survives F5 refresh. Prevents the page reload → re-submit trick.
+function markSubmitted(sessionHint) {
+  try { sessionStorage.setItem('qrs_submitted_' + sessionHint, '1'); } catch(e) {}
+}
+function hasSubmitted(sessionHint) {
+  return sessionStorage.getItem('qrs_submitted_' + sessionHint) === '1';
+}
+
 function startEarlyGPS() {
   const statusEl = document.getElementById('sc-token-status');
   const isHttps = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
@@ -778,6 +873,17 @@ async function doScan() {
   const statusEl = document.getElementById('sc-token-status');
   btn.disabled = true;
 
+  // ── F5 guard: double-check sessionStorage before submitting
+  const sessionHint = token.slice(0, 16);
+  if (hasSubmitted(sessionHint)) {
+    statusEl.className = 'alert alert-success';
+    statusEl.textContent = '✅ Your attendance has already been marked for this session.';
+    btn.textContent = '✓ Already Submitted';
+    document.getElementById('sc-name').disabled = true;
+    document.getElementById('sc-sid').disabled = true;
+    return;
+  }
+
   // If GPS is still in progress, wait for it (it had a head start since page load)
   if (!_gpsReady && !_gpsSkipped && _gpsPromise) {
     btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div> Waiting for location...';
@@ -789,15 +895,25 @@ async function doScan() {
   btn.innerHTML = '<div class="spinner" style="border-top-color:#000;"></div> Submitting...';
 
   try {
-    const payload = { token, studentName: name, studentId: sid };
+    const payload = { token, studentName: name, studentId: sid, deviceId: getDeviceId() };
     if (_studentLat != null) { payload.studentLat = _studentLat; payload.studentLng = _studentLng; }
     const data = await api('POST', '/api/attendance/scan', payload);
+
+    // ── Mark submitted in sessionStorage FIRST before touching the DOM
+    // This way even if the user instantly refreshes, it's recorded
+    markSubmitted(sessionHint);
+
     const res = document.getElementById('scan-result');
     res.className = 'scan-result ok';
     res.innerHTML = `✅ ${data.message}`;
     res.style.display = 'block';
     btn.style.display = 'none';
     statusEl.style.display = 'none';
+
+    // ── Lock the entire form permanently — no further submissions possible
+    document.getElementById('sc-name').disabled = true;
+    document.getElementById('sc-sid').disabled = true;
+
   } catch(e) {
     const msg = e.message.includes('TOO_FAR') || e.message.includes('away')
       ? `📍 ${e.message}`

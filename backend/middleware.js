@@ -21,10 +21,11 @@ function requireTeacher(req, res, next) {
   }
 }
 
-// ── rateLimitScans — in-memory per-IP: max 5 scans per 10 seconds
+// ── rateLimitScans — in-memory per-IP: max 3 requests per 10 seconds
+// Tightened from 5→3 to make brute-force/automation harder
 const scanAttempts = new Map();
 const SCAN_WINDOW_MS = 10000;
-const SCAN_MAX = 5;
+const SCAN_MAX = 3;
 
 // Cleanup old entries every 60 seconds to prevent memory leak
 setInterval(() => {
@@ -46,6 +47,7 @@ function rateLimitScans(req, res, next) {
 
   entry.count++;
   if (entry.count > SCAN_MAX) {
+    console.warn(`\x1b[31m[RATE-LIMIT]\x1b[0m ${ip} exceeded ${SCAN_MAX} scan attempts in ${SCAN_WINDOW_MS / 1000}s`);
     return res.status(429).json({ error: 'Too many attempts. Please wait and try again.' });
   }
   next();
