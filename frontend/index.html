@@ -345,13 +345,15 @@ function route() {
       return;
     }
 
-    // ── Claim the token immediately for this device — prevents shared links.
-    // Run in parallel with GPS; no need to await before showing the form.
+    // ── Claim the token + start GPS in parallel immediately.
+    // GPS starts right away (doesn't wait for claim) to maximise location fix time.
+    // Claim runs concurrently — if it fails, form is disabled after the fact.
+    startEarlyGPS(); // start GPS immediately — no need to wait for claim
     (async () => {
       try {
         await api('POST', '/api/attendance/claim', { token, deviceId: getDeviceId() });
-        // GPS starts after successful claim
-        startEarlyGPS();
+        // Claim succeeded — form stays enabled (already shown)
+        // Status is already being updated by startEarlyGPS()
       } catch(e) {
         // Token already claimed by another device, expired, or invalid
         if (statusEl) {

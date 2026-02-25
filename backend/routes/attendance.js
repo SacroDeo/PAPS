@@ -2,7 +2,7 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { sessions, attendanceRecords, usedTokens, claimedTokens, deviceSessions, ipSessions, ipDeviceClaims, fraudLogs } = require('../db');
 const { requireTeacher, rateLimitScans } = require('../middleware');
-const { verifyToken } = require('../crypto');
+const { verifyToken, verifyTokenSignatureOnly } = require('../crypto');
 
 const router = express.Router();
 
@@ -133,8 +133,34 @@ router.post('/scan', rateLimitScans, async (req, res) => {
     return res.status(400).json({ error: 'Invalid device identifier.' });
   }
 
-  // ── 1. Verify HMAC signature + expiry
-  const result = verifyToken(token);
+  // ── 1. Verify token
+  // Strategy:
+  //   - If already claimed by this device → signature-only check (no expiry re-check).
+  //     The expiry was validated at claim time. The student just needs time to fill the form.
+  //   - If NOT yet claimed → full check (signature + expiry).
+  //     This path is a fallback — normally /claim runs first.
+  // Either way, enforce a 5-minute grace cap from claim time so students can't
+  // claim a token and submit hours later from a different location.
+  let alreadyClaimed = null;
+  try {
+    const p = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+    const tid = `${p.sessionId}|${p.timestamp}|${p.nonce}`;
+    if (claimedTokens.has(tid)) alreadyClaimed = tid;
+  } catch { /* malformed token — will fail below */ }
+
+  if (alreadyClaimed) {
+    const claim = claimedTokens.get(alreadyClaimed);
+    const GRACE_MS = 5 * 60 * 1000; // 5 minutes from claim time
+    if (claim && Date.now() - claim.claimedAt > GRACE_MS) {
+      addFraudLog({ reason: 'CLAIM_GRACE_EXPIRED', tokenSnippet: token.slice(0, 20) + '...', ip, studentName: cleanName, studentId: cleanId });
+      return res.status(401).json({ error: 'Too much time has passed since you scanned the QR. Please scan again.' });
+    }
+  }
+
+  const result = alreadyClaimed
+    ? verifyTokenSignatureOnly(token)   // skip expiry — claim already proved it was valid when opened
+    : verifyToken(token);               // no prior claim — full check including expiry
+
   if (!result.valid) {
     addFraudLog({
       reason: result.reason || 'INVALID_TOKEN',
@@ -143,7 +169,10 @@ router.post('/scan', rateLimitScans, async (req, res) => {
       studentName: cleanName,
       studentId: cleanId
     });
-    return res.status(401).json({ error: result.reason || 'Invalid token' });
+    const userMessage = result.reason && result.reason.startsWith('TOKEN_EXPIRED')
+      ? 'QR code expired. Please scan the latest QR code shown on screen.'
+      : (result.reason || 'Invalid token');
+    return res.status(401).json({ error: userMessage });
   }
 
   // ── 2. One-time use check (replay prevention)

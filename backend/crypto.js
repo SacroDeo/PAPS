@@ -5,7 +5,10 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
 const HMAC_SECRET = process.env.HMAC_SECRET || 'dev-secret-change-in-production-please';
-const TOKEN_EXPIRY_MS = parseInt(process.env.TOKEN_EXPIRY_MS || '30000');
+// Token is valid for 60s on the backend, but the QR rotates every 30s on the frontend.
+// The extra 30s buffer ensures students who scan near the end of the visible QR cycle
+// still have plenty of time to fill the form and submit before the backend rejects it.
+const TOKEN_EXPIRY_MS = parseInt(process.env.TOKEN_EXPIRY_MS || '60000');
 
 /**
  * Generate a signed, time-bound, single-use token
@@ -73,7 +76,42 @@ function verifyToken(tokenStr) {
     return { valid: false, reason: `TOKEN_EXPIRED (age: ${Math.round(age / 1000)}s, max: ${TOKEN_EXPIRY_MS / 1000}s)` };
   }
 
-  return { valid: true, sessionId, tokenId };
+  return { valid: true, sessionId, tokenId, expiresAt: timestamp + TOKEN_EXPIRY_MS };
 }
 
-module.exports = { generateToken, verifyToken, TOKEN_EXPIRY_MS };
+/**
+ * Verify only the HMAC signature of a token — NO expiry check.
+ * Used by /scan when the token was already validated + claimed by /claim.
+ * The 30s window applies to *opening* the link (claim), not to *submitting* the form.
+ */
+function verifyTokenSignatureOnly(tokenStr) {
+  let payload;
+
+  try {
+    payload = JSON.parse(Buffer.from(tokenStr, 'base64').toString('utf8'));
+  } catch (e) {
+    return { valid: false, reason: 'MALFORMED_TOKEN' };
+  }
+
+  const { sessionId, timestamp, nonce, sig } = payload;
+  if (!sessionId || !timestamp || !nonce || !sig) {
+    return { valid: false, reason: 'MISSING_FIELDS' };
+  }
+
+  const tokenId = `${sessionId}|${timestamp}|${nonce}`;
+  const expectedSig = crypto
+    .createHmac('sha256', HMAC_SECRET)
+    .update(tokenId)
+    .digest('base64');
+
+  const sigBuffer = Buffer.from(sig);
+  const expectedBuffer = Buffer.from(expectedSig);
+  if (sigBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+    return { valid: false, reason: 'INVALID_SIGNATURE' };
+  }
+
+  return { valid: true, sessionId, tokenId, expiresAt: timestamp + TOKEN_EXPIRY_MS };
+}
+
+module.exports = { generateToken, verifyToken, verifyTokenSignatureOnly, TOKEN_EXPIRY_MS };
