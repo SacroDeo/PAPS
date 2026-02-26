@@ -21,11 +21,10 @@ function requireTeacher(req, res, next) {
   }
 }
 
-// ── rateLimitScans — in-memory per-IP: max 3 requests per 10 seconds
-// Tightened from 5→3 to make brute-force/automation harder
+// ── rateLimitScans — in-memory per-IP: max 30 requests per 10 seconds
 const scanAttempts = new Map();
 const SCAN_WINDOW_MS = 10000;
-const SCAN_MAX = 3;
+const SCAN_MAX = 30;
 
 // Cleanup old entries every 60 seconds to prevent memory leak
 setInterval(() => {

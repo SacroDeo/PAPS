@@ -23,21 +23,20 @@ app.use(cors({ origin: allowedOrigin }));
 app.use(express.json({ limit: '20kb' }));
 app.use(express.urlencoded({ extended: false, limit: '20kb' }));
 
-// ── GLOBAL RATE LIMIT (all API routes): 200 req / 15 min per IP
+// ── GLOBAL RATE LIMIT (all API routes): 2000 req / 15 min per IP
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many requests, please slow down.' }
+  skip: () => false
 });
 app.use('/api/', globalLimiter);
 
-// ── LOGIN RATE LIMIT: 10 attempts / 15 min per IP
+// ── LOGIN RATE LIMIT: 50 attempts / 15 min per IP
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: 'Too many login attempts. Try again in 15 minutes.' }
+  max: 50
 });
 app.use('/api/auth/login', loginLimiter);
 
