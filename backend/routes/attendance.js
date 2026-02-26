@@ -251,7 +251,7 @@ router.post('/scan', rateLimitScans, async (req, res) => {
     return res.status(409).json({ error: 'Your attendance is already marked for this session.' });
   }
 
-  // ── 5. Proximity check
+  // ── 5. Proximity check — GPS is MANDATORY when teacher has location set
   let locationStatus = 'unverified';
   let distanceMeters = null;
 
@@ -259,27 +259,39 @@ router.post('/scan', rateLimitScans, async (req, res) => {
     const sLat = parseFloat(studentLat);
     const sLng = parseFloat(studentLng);
 
-    if (!isNaN(sLat) && !isNaN(sLng)) {
-      distanceMeters = Math.round(haversineDistance(
-        session.teacherLocation.lat, session.teacherLocation.lng,
-        sLat, sLng
-      ));
-
-      if (distanceMeters > PROXIMITY_LIMIT_METERS) {
-        addFraudLog({
-          reason: `TOO_FAR (${distanceMeters}m, limit ${PROXIMITY_LIMIT_METERS}m)`,
-          tokenSnippet: token.slice(0, 20) + '...',
-          ip,
-          studentName: cleanName,
-          studentId: cleanId
-        });
-        return res.status(403).json({
-          error: `You are too far from the classroom (${distanceMeters}m away, max ${PROXIMITY_LIMIT_METERS}m).`
-        });
-      }
-      locationStatus = 'verified';
+    // ── GPS coordinates missing or invalid — hard reject
+    if (isNaN(sLat) || isNaN(sLng)) {
+      addFraudLog({
+        reason: 'GPS_NOT_PROVIDED',
+        tokenSnippet: token.slice(0, 20) + '...',
+        ip,
+        studentName: cleanName,
+        studentId: cleanId
+      });
+      return res.status(403).json({
+        error: 'Location is required to mark attendance. Please allow location access and try again.'
+      });
     }
-    // else: studentLat/Lng missing or invalid — allow with 'unverified' status
+
+    distanceMeters = Math.round(haversineDistance(
+      session.teacherLocation.lat, session.teacherLocation.lng,
+      sLat, sLng
+    ));
+
+    if (distanceMeters > PROXIMITY_LIMIT_METERS) {
+      addFraudLog({
+        reason: `TOO_FAR (${distanceMeters}m, limit ${PROXIMITY_LIMIT_METERS}m)`,
+        tokenSnippet: token.slice(0, 20) + '...',
+        ip,
+        studentName: cleanName,
+        studentId: cleanId
+      });
+      return res.status(403).json({
+        error: `You are too far from the classroom (${distanceMeters}m away, max ${PROXIMITY_LIMIT_METERS}m). Move closer and try again.`
+      });
+    }
+
+    locationStatus = 'verified';
   } else {
     locationStatus = 'not_required';
   }
