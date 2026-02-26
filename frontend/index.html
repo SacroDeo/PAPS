@@ -980,10 +980,10 @@ function startEarlyGPS() {
     return;
   }
 
-  // Start GPS fetch immediately in background
+  // Start GPS fetch immediately in background — prompt will fire now
   if (statusEl) {
-    statusEl.className = 'alert alert-info';
-    statusEl.textContent = '📍 Detecting your location... Please allow location access when prompted.';
+    statusEl.className = 'alert alert-warning';
+    statusEl.innerHTML = '📍 <strong>Location permission required.</strong> A popup will appear — tap <strong>Allow</strong> to continue. Location is required to mark attendance.';
   }
 
   _gpsPromise = new Promise((resolve) => {
