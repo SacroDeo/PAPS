@@ -45,7 +45,7 @@ header{padding:18px 40px;border-bottom:1px solid var(--border);display:flex;alig
 .btn-danger{background:rgba(255,51,102,0.15);color:var(--accent2);border:1px solid rgba(255,51,102,0.3);}
 .btn-danger:hover{background:rgba(255,51,102,0.25);}
 .btn-sm{padding:8px 15px;font-size:0.8rem;}
-.alert{padding:12px 16px;border-radius:9px;margin-bottom:14px;font-size:0.85rem;display:flex;align-items:center;gap:8px;line-height:1.4;}
+.alert{padding:12px 16px;border-radius:9px;margin-bottom:14px;font-size:0.85rem;display:flex;align-items:flex-start;gap:8px;line-height:1.6;word-break:break-word;overflow-wrap:anywhere;width:100%;box-sizing:border-box;}
 .alert-error{background:rgba(255,51,102,0.1);border:1px solid rgba(255,51,102,0.25);color:var(--accent2);}
 .alert-success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.25);color:var(--accent);}
 .alert-info{background:rgba(51,136,255,0.1);border:1px solid rgba(51,136,255,0.25);color:var(--accent3);}
@@ -384,7 +384,7 @@ tr:last-child td{border-bottom:none;} tr:hover td{background:rgba(255,255,255,0.
         <div style="font-size:4rem;margin-bottom:16px;">🚫</div>
         <h2 style="color:var(--accent2);margin-bottom:12px;" id="scan-blocked-title">Link Invalid</h2>
         <div class="auth-card" style="text-align:left;margin-top:24px;border-color:rgba(255,51,102,0.4);">
-          <div class="alert alert-error" id="scan-blocked-msg" style="font-size:0.95rem;line-height:1.7;"></div>
+          <div class="alert alert-error" id="scan-blocked-msg"></div>
           <div style="font-size:0.82rem;color:var(--muted);line-height:1.7;margin-top:8px;">
             🔒 Each QR link is single-use and bound to the first device that opens it.<br>
             📱 To mark your attendance, <strong style="color:var(--text);">scan the QR code directly</strong> from the projector/screen with your own device's camera.<br>
@@ -486,7 +486,7 @@ function route() {
         } else if (msg.includes('expired') || msg.includes('Invalid or expired')) {
           showBlockedScreen(
             '⏱ QR Code Expired',
-            '⌛ This QR code has <strong>expired</strong> before you could open it.<br><br>' +
+            '⌛ This QR code has <strong>expired</strong>.<br><br>' +
             'QR codes refresh every 30 seconds. Please <strong>scan the latest QR code</strong> shown on the classroom screen.'
           );
         } else if (msg.includes('Suspicious') || msg.includes('farm')) {
@@ -1112,7 +1112,7 @@ async function doScan() {
     } else if (msg.includes('expired') || msg.includes('QR code expired')) {
       showBlockedScreen(
         '⏱ QR Code Expired',
-        '⌛ The QR code <strong>expired</strong> before your submission was received.<br><br>' +
+        '⌛ The QR code has <strong>expired</strong>.<br><br>' +
         'Please <strong>scan the latest QR code</strong> shown on the classroom screen and try again quickly.'
       );
     } else {
